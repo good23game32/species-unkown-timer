@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080b18">
+<title>The Final Countdown</title>
+<style>
+:root{color-scheme:dark;--gold:#ffd66b;--muted:#c2c9df}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#070914 url("space-background.jpg") center/cover fixed no-repeat;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:grid;place-items:center;padding:22px}
+body:before{content:"";position:fixed;inset:0;background:linear-gradient(120deg,rgba(4,7,20,.78),rgba(5,8,24,.46) 55%,rgba(3,5,15,.78));pointer-events:none}
+main{position:relative;width:min(940px,100%);text-align:center}
+.kicker{font-size:.78rem;font-weight:800;letter-spacing:.3em;color:var(--gold)}
+h1{font-size:clamp(2.5rem,8vw,6rem);line-height:.92;letter-spacing:-.055em;text-transform:uppercase;margin:15px 0 22px;text-shadow:0 4px 28px #000}
+#clock{font-size:clamp(2rem,8.4vw,6rem);font-weight:850;letter-spacing:-.05em;font-variant-numeric:tabular-nums;text-shadow:0 3px 25px #000}
+#status{min-height:1.7em;color:#e3e8fa;margin:10px 0 22px}
+.panel{margin:0 auto;max-width:690px;text-align:left;background:rgba(9,13,32,.82);backdrop-filter:blur(12px);border:1px solid rgba(192,210,255,.28);border-radius:18px;padding:20px;box-shadow:0 20px 80px #0007}
+label{display:block;font-weight:700;margin:13px 0 7px;color:#f0f3ff}
+input{font:inherit;width:100%;padding:11px 12px;border-radius:9px;border:1px solid #606b8c;background:#080d20;color:white}
+.hint{font-size:.86rem;color:var(--muted);line-height:1.45;margin-top:6px}
+.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+button{font:inherit;font-weight:800;border:0;border-radius:10px;padding:12px 16px;cursor:pointer}
+.primary{background:var(--gold);color:#201700}.secondary{background:#283454;color:white}
+#player{width:100%;margin-top:12px}
+#shareResult{overflow-wrap:anywhere;color:#dbe4ff;font-size:.9rem;margin-top:12px}
+.note{font-size:.82rem;color:#c2c9df;line-height:1.5;margin:15px auto 0;max-width:680px}
+.hidden{display:none!important}
+@media(max-width:520px){.panel{padding:15px}.buttons button{flex:1}}
+</style>
+</head>
+<body>
+<main>
+  <div class="kicker">A MOMENT IN THE STARS</div>
+  <h1>The Final<br>Countdown</h1>
+  <div id="clock">Choose a date</div>
+  <div id="status">Create a countdown, then share the same moment with your friends.</div>
+
+  <section class="panel" id="settings">
+    <label for="target">Target date and time (your local time)</label>
+    <input id="target" type="datetime-local">
+    <label for="lead">Start the song this many seconds before the target</label>
+    <input id="lead" type="number" min="0" max="86400" value="30">
+    <label for="audioPath">Shared song file path or direct audio URL</label>
+    <input id="audioPath" type="text" value="countdown-song.mp3" placeholder="countdown-song.mp3 or direct audio URL">
+    <div class="hint">For everyone to hear the same song, the audio must be available online. Easiest: upload a properly licensed audio file named <b>countdown-song.mp3</b> into this same GitHub repository. If you use a direct audio URL, it must link directly to a playable audio file.</div>
+    <div class="buttons">
+      <button class="primary" id="arm">Start countdown</button>
+      <button class="secondary" id="share">Share countdown link</button>
+      <button class="secondary" id="full">Fullscreen</button>
+    </div>
+    <div id="shareResult" aria-live="polite"></div>
+    <audio id="player" controls class="hidden" preload="auto"></audio>
+    <div class="hint">Browsers usually block sound until each friend interacts with the page. Ask everyone to open the link and click <b>Enable sound</b> before the event. Keep the page open and the device awake.</div>
+    <div class="buttons"><button id="enable" class="primary">Enable sound</button></div>
+  </section>
+  <div class="note">The shared link contains the target moment and song path. Anyone with the link can view it. This is a static website, so it does not synchronize playback or send notifications if someone closes the page.</div>
+</main>
+<script>
+(() => {
+ const $=id=>document.getElementById(id);
+ const target=$('target'),lead=$('lead'),audioPath=$('audioPath'),clock=$('clock'),status=$('status'),player=$('player');
+ let targetMs=null,songMs=null,armed=false,fired=false,timer=null,audioEnabled=false;
+ const pad=n=>String(n).padStart(2,'0');
+ const fmt=ms=>{if(ms<=0)return '00d 00:00:00';let s=Math.floor(ms/1000),d=Math.floor(s/86400);s%=86400;let h=Math.floor(s/3600);s%=3600;let m=Math.floor(s/60);s%=60;return `${String(d).padStart(2,'0')}d ${pad(h)}:${pad(m)}:${pad(s)}`};
+ function audioUrl(){
+   const raw=audioPath.value.trim();
+   if(!raw)return '';
+   try{return new URL(raw,location.href).href}catch{return ''}
+ }
+ function loadAudio(){
+   const url=audioUrl();
+   if(url && player.src!==url){player.src=url;player.load();}
+ }
+ function tick(){
+   if(!armed||targetMs===null)return;
+   const now=Date.now(),remaining=targetMs-now;
+   clock.textContent=fmt(remaining);
+   if(!fired&&now>=songMs){
+     fired=true;
+     if(player.src){
+       player.currentTime=0;
+       player.play().then(()=>{status.textContent="IT'S THE FINAL COUNTDOWN!";}).catch(()=>{
+         player.classList.remove('hidden');
+         status.textContent='The song time has arrived. Browser playback needs a click; press Play below.';
+       });
+       player.classList.remove('hidden');
+     }else status.textContent='Target moment reached! Add a shared audio file to hear the song.';
+   } else if(!fired){
+     const secs=Math.max(0,Math.ceil((songMs-now)/1000));
+     status.textContent=secs>0?`Song starts in ${secs} seconds`:'Starting the song…';
+   }
+   if(remaining<=0){clock.textContent='00d 00:00:00';clearInterval(timer);}
+ }
+ function getParams(){
+   const p=new URLSearchParams(location.search);
+   const t=p.get('target');
+   if(t && Number.isFinite(Date.parse(t))){
+     const dt=new Date(Number(t));
+     target.value=`${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+   }
+   if(p.has('lead'))lead.value=p.get('lead');
+   if(p.has('song'))audioPath.value=p.get('song');
+ }
+ function buildShareUrl(){
+   const dt=new Date(target.value).getTime();
+   if(!target.value||!Number.isFinite(dt)){status.textContent='Choose a valid target date and time first.';return null;}
+   if(dt<=Date.now()){status.textContent='Choose a future date and time to share.';return null;}
+   const seconds=Number(lead.value);
+   if(!Number.isFinite(seconds)||seconds<0){status.textContent='Enter a valid number of seconds.';return null;}
+   const u=new URL(location.href);u.search='';
+   u.searchParams.set('target',String(dt));
+   u.searchParams.set('lead',String(Math.floor(seconds)));
+   if(audioPath.value.trim())u.searchParams.set('song',audioPath.value.trim());
+   return u.href;
+ }
+ $('share').addEventListener('click',async()=>{
+   const url=buildShareUrl();if(!url)return;
+   $('shareResult').textContent=url;
+   try{await navigator.clipboard.writeText(url);$('shareResult').textContent='Copied! Send this link to your friends: '+url;}
+   catch{$('shareResult').textContent='Copy this link and send it to your friends: '+url;}
+ });
+ $('arm').addEventListener('click',()=>{
+   const dt=new Date(target.value).getTime();
+   if(!target.value||!Number.isFinite(dt)||dt<=Date.now()){status.textContent='Choose a valid future date and time.';return;}
+   const seconds=Number(lead.value);if(!Number.isFinite(seconds)||seconds<0){status.textContent='Enter a valid number of seconds.';return;}
+   targetMs=dt;songMs=dt-Math.floor(seconds*1000);armed=true;fired=false;clearInterval(timer);
+   loadAudio();tick();timer=setInterval(tick,200);
+ });
+ $('enable').addEventListener('click',async()=>{
+   loadAudio();
+   if(!player.src){status.textContent='Set a shared song file path or URL first.';return;}
+   try{
+     player.muted=true;await player.play();player.pause();player.currentTime=0;player.muted=false;audioEnabled=true;
+     status.textContent='Sound enabled. Keep this page open until the countdown moment.';
+     player.classList.remove('hidden');
+   }catch(e){player.muted=false;player.classList.remove('hidden');status.textContent='Could not load the audio. Check the shared file path/URL and try Play below.';}
+ });
+ $('full').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch{}});
+ getParams();
+ const now=new Date(Date.now()+3600000);now.setSeconds(0,0);
+ if(!target.value)target.value=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+ if(new URLSearchParams(location.search).has('target')){$('settings').scrollIntoView({block:'nearest'});}
+})();
+</script>
+</body>
+</html>
